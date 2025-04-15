@@ -1,0 +1,499 @@
+import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.util.*;
+
+public class BankManagementSystem {
+    private static final double INTEREST_RATE = 0.05;
+    private static int accountCounter = 1;
+    private final Map<String, Account> accounts = new HashMap<>();
+    private final List<AccountRequest> accountRequests = new ArrayList<>();
+    private final Scanner scanner = new Scanner(System.in);
+
+    // 1. Abstraction
+    interface BankAccount extends Serializable {
+        boolean verifyPassword(String password);
+        void deposit(double amount);
+        boolean withdraw(double amount);
+        boolean transfer(BankAccount receiver, double amount);
+        void applyInterest();
+        void printStatement();
+        String getAccountNumber();
+        String getHolderName();
+        double getBalance();
+    }
+
+    // 2. Encapsulation
+    class Account implements BankAccount {
+        private final String accountNumber;
+        private final String holderName;
+        private final String phone;
+        private double balance;
+        private final String password;
+        private final List<Transaction> transactions = new ArrayList<>();
+
+        public Account(String accountNumber, String name, String phone, String password) {
+            validatePhone(phone);
+            this.accountNumber = accountNumber;
+            this.holderName = name;
+            this.phone = phone;
+            this.password = password;
+            transactions.add(new Transaction("ACCOUNT CREATED", balance));
+        }
+
+
+        @Override
+        public boolean verifyPassword(String password) {
+            return this.password.equals(password);
+        }
+
+        @Override
+        public void deposit(double amount) {
+            balance += amount;
+            transactions.add(new Transaction("DEPOSIT", amount));
+        }
+
+        @Override
+        public boolean withdraw(double amount) {
+            if (balance >= amount) {
+                balance -= amount;
+                transactions.add(new Transaction("WITHDRAWAL", -amount));
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean transfer(BankAccount receiver, double amount) {
+            if (receiver instanceof Account && balance >= amount &&
+                    !accountNumber.equals(((Account) receiver).accountNumber)) {
+                balance -= amount;
+                ((Account) receiver).balance += amount;
+                transactions.add(new Transaction("TRANSFER_TO:" + receiver.getAccountNumber(), -amount));
+                ((Account) receiver).transactions.add(new Transaction("TRANSFER_FROM:" + accountNumber, amount));
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void applyInterest() {
+            double interest = balance * (INTEREST_RATE / 365);
+            balance += interest;
+            transactions.add(new Transaction("INTEREST", interest));
+        }
+
+        @Override
+        public void printStatement() {
+            System.out.println("\n=== Account Statement ===");
+            System.out.println("Account: " + accountNumber);
+            System.out.println("Holder: " + holderName);
+            System.out.printf("Balance: $%.2f\n", balance);
+            System.out.println("\nTransactions:");
+            transactions.forEach(System.out::println);
+        }
+
+        @Override
+        public String getAccountNumber() { return accountNumber; }
+        @Override
+        public String getHolderName() { return holderName; }
+        @Override
+        public double getBalance() { return balance; }
+    }
+
+    class Transaction implements Serializable {
+        private final LocalDateTime timestamp;
+        private final String description;
+        private final double amount;
+
+        public Transaction(String desc, double amt) {
+            this.timestamp = LocalDateTime.now();
+            this.description = desc;
+            this.amount = amt;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("[%s] %-25s %+8.2f",
+                    timestamp.toLocalDate(), description, amount);
+        }
+    }
+
+    // 3. Inheritance
+    class AccountRequest implements Serializable {
+        private final String requestedAccountNumber;
+        private final String requesterAccount;
+        private final String newName;
+        private final String newPhone;
+        private final String newPassword;
+        private String status;
+
+        public AccountRequest(String requesterAccount, String newName,
+                              String newPhone, String newPassword) {
+            this.requestedAccountNumber = generateAccountNumber();
+            this.requesterAccount = requesterAccount;
+            this.newName = newName;
+            this.newPhone = newPhone;
+            this.newPassword = newPassword;
+            this.status = "PENDING";
+        }
+
+        // 4. Polymorphism
+        @Override
+        public String toString() {
+            return String.format("Requested Account: %s\nRequested by: %s\nName: %s\nPhone: %s\nStatus: %s",
+                    requestedAccountNumber, requesterAccount, newName, newPhone, status);
+        }
+
+        public String getStatus() { return status; }
+        public void approve() { status = "APPROVED"; }
+        public void deny() { status = "DENIED"; }
+        public String getRequestedAccountNumber() { return requestedAccountNumber; }
+    }
+
+
+
+    public static void main(String[] args) {
+        new BankManagementSystem().run();
+    }
+
+    private void run() {
+        while (true) {
+            printMainMenu();
+            int choice = getIntInput("Choose option: ");
+
+            switch (choice) {
+                case 1 -> createAccount();
+                case 2 -> customerLogin();
+                case 3 -> adminLogin();
+                case 4 -> System.exit(0);
+                default -> showError("Invalid selection");
+            }
+        }
+    }
+    private String generateAccountNumber() {
+        String newNumber;
+        do {
+            newNumber = String.format("ACC%07d", accountCounter++);
+        } while (accounts.containsKey(newNumber));
+        return newNumber;
+    }
+
+    private void createAccount() {
+        String accNumber = generateAccountNumber();
+        String name = getInput("Enter full name: ");
+        String phone = getInput("Enter phone (11 digits): ");
+        String password = getInput("Create password: ");
+
+        try {
+            Account acc = new Account(accNumber, name, phone, password);  //calling Accaunt Constractor
+            accounts.put(accNumber, acc);
+            System.out.println("Account created! Number: " + accNumber);
+        } catch (IllegalArgumentException e) {
+            showError(e.getMessage());
+        }
+    }
+    private void validatePhone(String phone) {
+        if (!phone.matches("\\d{11}")) {
+            throw new IllegalArgumentException("Phone must be 11 digits");
+        }
+    }
+
+    private void customerLogin() {
+        String accNumber = getInput("Account number: ");
+        String password = getInput("Password: ");
+
+        Account acc = accounts.get(accNumber);
+        if (acc != null && acc.verifyPassword(password)) {
+            customerMenu(acc);
+        } else {
+            showError("Invalid credentials");
+        }
+    }
+
+    private void customerMenu(Account acc) {
+        while (true) {
+            printCustomerMenu();
+            int choice = getIntInput("Choose action: ");
+
+            switch (choice) {
+                case 1 -> acc.printStatement();
+                case 2 -> performDeposit(acc);
+                case 3 -> performWithdrawal(acc);
+                case 4 -> performTransfer(acc);
+                case 5 -> requestNewAccount(acc);
+                case 6 -> { return; }
+                default -> showError("Invalid choice");
+            }
+        }
+    }
+
+    private void performDeposit(BankAccount acc) {
+        double amount = getAmount("Deposit amount: ");
+        acc.deposit(amount);
+        System.out.println("Deposit successful!");
+        System.out.printf("Current balance: $%.2f\n\n", acc.getBalance());
+    }
+
+    private void performWithdrawal(BankAccount acc) {
+        double amount = getAmount("Withdrawal amount: ");
+        if (acc.withdraw(amount)) {
+            System.out.println("Withdrawal successful!");
+            System.out.printf("Current balance: $%.2f\n\n", acc.getBalance());
+        } else {
+            showError("Insufficient funds");
+        }
+    }
+    private double getAmount(String prompt) {
+        while (true) {
+            try {
+                System.out.print(prompt);
+                double amount = scanner.nextDouble();
+                scanner.nextLine();
+                if (amount > 0) return amount;
+                showError("Amount must be positive");
+            } catch (InputMismatchException e) {
+                showError("Invalid number format");
+                scanner.nextLine();
+            }
+        }
+    }
+    private void performTransfer(Account sender) {
+        String receiverNumber = getInput("Receiver account: ");
+        BankAccount receiver = accounts.get(receiverNumber);
+
+        if (receiver == null) {
+            showError("Account not found");
+            return;
+        }
+
+        double amount = getAmount("Transfer amount: ");
+        if (sender.transfer(receiver, amount)) {
+            System.out.println("Transfer completed");
+            System.out.printf("Your new balance: $%.2f\n\n", sender.getBalance());
+        } else {
+            showError("Transfer failed. Check balance");
+        }
+    }
+
+    private void requestNewAccount(Account requester) {
+        System.out.println("\n=== New Account Request ===");
+        String name = getInput("New member's full name: ");
+        String phone = getInput("New member's phone (11 digits): ");
+        String password = getInput("New member's password: ");
+
+        accountRequests.add(new AccountRequest(
+                requester.getAccountNumber(),
+                name,
+                phone,
+                password
+        ));
+        System.out.println("Account request submitted for admin approval.");
+    }
+
+    private void adminLogin() {
+        String username = getInput("Admin username: ");
+        String password = getInput("Admin password: ");
+
+        if (username.equals("admin") && password.equals("admin123")) {
+            adminMenu();
+        } else {
+            showError("Invalid admin credentials");
+        }
+    }
+
+    private void adminMenu() {
+        while (true) {
+            printAdminMenu();
+            int choice = getIntInput("Admin action: ");
+
+            switch (choice) {
+                case 1 -> createAccount();
+                case 2 -> listAllAccounts();
+                case 3 -> processAccountRequests();
+                case 4 -> applyDailyInterest();
+                case 5 -> deleteAccount();
+                case 6 -> adminDeposit();
+                case 7 -> adminWithdraw();
+                case 8 -> adminTransfer();
+                case 9 -> { return; }
+                default -> showError("Invalid choice");
+            }
+        }
+    }
+
+    private void adminDeposit() {
+        String accNumber = getInput("Enter account number: ");
+        BankAccount acc = accounts.get(accNumber);
+        if (acc == null) {
+            showError("Account not found");
+            return;
+        }
+        double amount = getAmount("Deposit amount: ");
+        acc.deposit(amount);
+        System.out.println("Admin deposit successful");
+    }
+
+    private void adminWithdraw() {
+        String accNumber = getInput("Enter account number: ");
+        BankAccount acc = accounts.get(accNumber);
+        if (acc == null) {
+            showError("Account not found");
+            return;
+        }
+        double amount = getAmount("Withdrawal amount: ");
+        if (acc.withdraw(amount)) {
+            System.out.println("Admin withdrawal successful");
+        } else {
+            showError("Withdrawal failed");
+        }
+    }
+
+    private void adminTransfer() {
+        String senderNumber = getInput("Sender account: ");
+        BankAccount sender = accounts.get(senderNumber);
+        if (sender == null) {
+            showError("Sender account not found");
+            return;
+        }
+
+        String receiverNumber = getInput("Receiver account: ");
+        BankAccount receiver = accounts.get(receiverNumber);
+        if (receiver == null) {
+            showError("Receiver account not found");
+            return;
+        }
+
+        double amount = getAmount("Transfer amount: ");
+        if (sender.transfer(receiver, amount)) {
+            System.out.println("Admin transfer completed");
+        } else {
+            showError("Transfer failed");
+        }
+    }
+
+    private void processAccountRequests() {
+        List<AccountRequest> pendingRequests = accountRequests.stream()
+                .filter(req -> req.getStatus().equals("PENDING"))
+                .toList();
+
+        if (pendingRequests.isEmpty()) {
+            System.out.println("No pending account requests.");
+            return;
+        }
+
+        System.out.println("\n=== Pending Account Requests ===");
+        for (int i = 0; i < pendingRequests.size(); i++) {
+            System.out.printf("%d. %s\n", i+1, pendingRequests.get(i));
+        }
+
+        int choice = getIntInput("Enter request number to process (0 to cancel): ");
+        if (choice < 1 || choice > pendingRequests.size()) {
+            if (choice != 0) showError("Invalid selection");
+            return;
+        }
+
+        AccountRequest req = pendingRequests.get(choice-1);
+        System.out.println("1. Approve\n2. Deny");
+        int action = getIntInput("Choose action: ");
+        switch (action) {
+            case 1 -> {
+                try {
+                    Account newAccount = new Account(
+                            req.getRequestedAccountNumber(),
+                            req.newName,
+                            req.newPhone,
+                            req.newPassword
+                    );
+                    accounts.put(newAccount.getAccountNumber(), newAccount);
+                    req.approve();
+                    System.out.println("Account created: " + newAccount.getAccountNumber());
+                } catch (IllegalArgumentException e) {
+                    showError(e.getMessage());
+                }
+            }
+            case 2 -> {
+                req.deny();
+                System.out.println("Request denied.");
+            }
+            default -> showError("Invalid action");
+        }
+    }
+
+    private void applyDailyInterest() {
+        accounts.values().forEach(BankAccount::applyInterest);
+        System.out.println("Daily interest applied to all accounts");
+    }
+
+    private void listAllAccounts() {
+        System.out.println("\n=== All Accounts ===");
+        accounts.values().forEach(acc -> {
+            System.out.printf("%s - %s - Balance: $%.2f\n",
+                    acc.getAccountNumber(), acc.getHolderName(), acc.getBalance());
+        });
+    }
+
+    private void deleteAccount() {
+        String accNumber = getInput("Enter account number to delete: ");
+        if (accounts.containsKey(accNumber)) {
+            accounts.remove(accNumber);
+            System.out.println("Account deleted successfully");
+        } else {
+            showError("Account not found");
+        }
+    }
+
+   // here
+
+    private String getInput(String prompt) {
+        System.out.print(prompt);
+        return scanner.nextLine();
+    }
+
+    private int getIntInput(String prompt) {
+        while (true) {
+            try {
+                System.out.print(prompt);
+                return scanner.nextInt();
+            } catch (InputMismatchException e) {
+                showError("Please enter a number");
+            } finally {
+                scanner.nextLine();
+            }
+        }
+    }
+
+    private void printMainMenu() {
+        System.out.println("\n==== Banking System ====");
+        System.out.println("1. Create New Account");
+        System.out.println("2. Customer Login");
+        System.out.println("3. Admin Login");
+        System.out.println("4. Exit");
+    }
+
+    private void printCustomerMenu() {
+        System.out.println("\n==== Customer Portal ====");
+        System.out.println("1. View Statement");
+        System.out.println("2. Deposit Funds");
+        System.out.println("3. Withdraw Funds");
+        System.out.println("4. Transfer Funds");
+        System.out.println("5. Request New Account");
+        System.out.println("6. Logout");
+    }
+
+    private void printAdminMenu() {
+        System.out.println("\n==== Admin Portal ====");
+        System.out.println("1. Create New Account");
+        System.out.println("2. List All Accounts");
+        System.out.println("3. Process Account Requests");
+        System.out.println("4. Apply Daily Interest");
+        System.out.println("5. Delete Account");
+        System.out.println("6. Deposit Funds");
+        System.out.println("7. Withdraw Funds");
+        System.out.println("8. Transfer Funds");
+        System.out.println("9. Logout");
+    }
+
+    private void showError(String message) {
+        System.out.println("Error: " + message);
+    }
+}
